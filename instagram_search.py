@@ -44,7 +44,7 @@ class InstagramPost:
             return hashtags
 
 
-class ExtractInstagram(metaclass=ABCMeta):
+class HashTagSearch(metaclass=ABCMeta):
 
     def __init__(self, request_timeout=10000, error_timeout=10000, request_retries=3):
         super().__init__()
@@ -199,7 +199,7 @@ class ExtractInstagram(metaclass=ABCMeta):
         """
 
 
-class ExtractInstagramExample(ExtractInstagram):
+class HashTagSearchExample(HashTagSearch):
 
     def __init__(self):
         super().__init__()
@@ -214,4 +214,4 @@ class ExtractInstagramExample(ExtractInstagram):
 
 if __name__ == '__main__':
     log.basicConfig(level=log.INFO)
-    ExtractInstagramExample().extract_recent_tag("brexit")
+    HashTagSearchExample().extract_recent_tag("brexit")

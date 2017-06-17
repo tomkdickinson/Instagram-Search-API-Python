@@ -1,9 +1,11 @@
 import json
+from json import JSONDecodeError
 import bs4
 import requests
 import re
 import logging as log
 from abc import ABCMeta, abstractmethod
+import sys
 
 
 class InstagramUser:
@@ -92,7 +94,7 @@ class HashTagSearch(metaclass=ABCMeta):
 
         url_string = "https://www.instagram.com/explore/tags/%s/" % tag
         response = bs4.BeautifulSoup(requests.get(url_string).text, "html.parser")
-        query_ids = self.get_query_id(response)
+        potential_query_ids = self.get_query_id(response)
         shared_data = self.extract_shared_data(response)
 
         media = shared_data['entry_data']['TagPage'][0]['tag']['media']
@@ -103,21 +105,37 @@ class HashTagSearch(metaclass=ABCMeta):
         self.save_results(posts)
 
         end_cursor = media['page_info']['end_cursor']
-        while end_cursor is not None:
+
+        # figure out valid queryId
+        success = False
+        for potential_id in potential_query_ids:
+            url = "https://www.instagram.com/graphql/query/?query_id=%s&tag_name=%s&first=12&after=%s" % (
+                potential_id, tag, end_cursor)
             try:
-                url = "https://www.instagram.com/graphql/query/?query_id=%s&tag_name=%s&first=12&after=%s" % (
-                query_ids[0], tag, end_cursor)
-                data = json.loads(requests.get(url).text)
-                end_cursor = data['data']['hashtag']['edge_hashtag_to_media']['page_info']['end_cursor']
-                posts = []
-                for node in data['data']['hashtag']['edge_hashtag_to_media']['edges']:
-                    posts.append(self.extract_recent_query_instagram_post(node['node']))
-                self.save_results(posts)
-            except Exception as e:
-                query_ids = query_ids[1:]
-                if len(query_ids) == 0:
-                    log.error("Could not extract Query Id, exiting")
-                    end_cursor = None
+                data = requests.get(url).json()
+                if 'hashtag' not in data['data']:
+                    # empty response, skip
+                    continue
+                query_id = potential_id
+                success = True
+                break
+            except JSONDecodeError as de:
+                # no valid JSON retured, most likely wrong query_id resulting in 'Oops, an error occurred.'
+                pass
+        if not success:
+            log.error("Error extracting Query Id, exiting")
+            sys.exit(1)
+
+        while end_cursor is not None:
+            url = "https://www.instagram.com/graphql/query/?query_id=%s&tag_name=%s&first=12&after=%s" % (
+            query_id, tag, end_cursor)
+            data = json.loads(requests.get(url).text)
+            end_cursor = data['data']['hashtag']['edge_hashtag_to_media']['page_info']['end_cursor']
+            posts = []
+            for node in data['data']['hashtag']['edge_hashtag_to_media']['edges']:
+                posts.append(self.extract_recent_query_instagram_post(node['node']))
+            self.save_results(posts)
+
 
     @staticmethod
     def extract_shared_data(doc):
@@ -134,7 +152,7 @@ class HashTagSearch(metaclass=ABCMeta):
             post_id=node['id'],
             code=node['code'],
             user=InstagramUser(user_id=node['owner']['id']),
-            caption=node['caption'],
+            caption=node['caption'] if 'caption' in node else None,
             display_src=node['display_src'],
             is_video=node['is_video'],
             created_at=node['date']
@@ -174,7 +192,7 @@ class HashTagSearch(metaclass=ABCMeta):
         for script in doc.find_all("script"):
             if script.has_attr("src") and "en_US_Commons" in script['src']:
                 text = requests.get("%s%s" % (self.instagram_root, script['src'])).text
-                for query_id in re.findall("(?<=c=\")[0-9]{1,}", text):
+                for query_id in re.findall("(?<=queryId:\")[0-9]{17,17}", text):
                     query_ids.append(query_id)
         return query_ids
 

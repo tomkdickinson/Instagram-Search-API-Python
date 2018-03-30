@@ -227,7 +227,6 @@ class HashTagSearchExample(HashTagSearch):
         super().save_results(instagram_results)
         for i, post in enumerate(instagram_results):
             self.total_posts += 1
-            print(post.user.followers_count)
             print("%i - %s" % (self.total_posts, post.processed_text()))
 
 

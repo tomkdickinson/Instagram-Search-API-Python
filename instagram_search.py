@@ -97,9 +97,9 @@ class HashTagSearch(metaclass=ABCMeta):
         potential_query_ids = self.get_query_id(response)
         shared_data = self.extract_shared_data(response)
 
-        media = shared_data['entry_data']['TagPage'][0]['tag']['media']
+        media = shared_data['entry_data']['TagPage'][0]['graphql']['hashtag']['edge_hashtag_to_media']
         posts = []
-        for node in media['nodes']:
+        for node in media['edges']:
             post = self.extract_recent_instagram_post(node)
             posts.append(post)
         self.save_results(posts)
@@ -109,8 +109,7 @@ class HashTagSearch(metaclass=ABCMeta):
         # figure out valid queryId
         success = False
         for potential_id in potential_query_ids:
-            url = "https://www.instagram.com/graphql/query/?query_id=%s&tag_name=%s&first=12&after=%s" % (
-                potential_id, tag, end_cursor)
+            url = "https://www.instagram.com/graphql/query/?query_hash=%s&variables={'tag_name': tag,'first': 9,'after': end_cursor}" % potential_id
             try:
                 data = requests.get(url).json()
                 if 'hashtag' not in data['data']:
@@ -127,8 +126,7 @@ class HashTagSearch(metaclass=ABCMeta):
             sys.exit(1)
 
         while end_cursor is not None:
-            url = "https://www.instagram.com/graphql/query/?query_id=%s&tag_name=%s&first=12&after=%s" % (
-            query_id, tag, end_cursor)
+            url = "https://www.instagram.com/graphql/query/?query_hash=%s&variables={'tag_name': tag, 'first': 9, 'after': end_cursor" % query_id
             data = json.loads(requests.get(url).text)
             end_cursor = data['data']['hashtag']['edge_hashtag_to_media']['page_info']['end_cursor']
             posts = []
@@ -147,15 +145,16 @@ class HashTagSearch(metaclass=ABCMeta):
                 return shared_data
 
     @staticmethod
-    def extract_recent_instagram_post(node):
+    def extract_recent_instagram_post(nodeparam):
+        node = nodeparam["node"]
         return InstagramPost(
             post_id=node['id'],
-            code=node['code'],
+            code=node['shortcode'],
             user=InstagramUser(user_id=node['owner']['id']),
             caption=node['caption'] if 'caption' in node else None,
-            display_src=node['display_src'],
+            display_src=node['display_url'],
             is_video=node['is_video'],
-            created_at=node['date']
+            created_at=node['taken_at_timestamp']
         )
 
     @staticmethod
@@ -190,9 +189,9 @@ class HashTagSearch(metaclass=ABCMeta):
     def get_query_id(self, doc):
         query_ids = []
         for script in doc.find_all("script"):
-            if script.has_attr("src") and "en_US_Commons" in script['src']:
+            if script.has_attr("src") and "ConsumerCommons.js" in script['src']:
                 text = requests.get("%s%s" % (self.instagram_root, script['src'])).text
-                for query_id in re.findall("(?<=queryId:\")[0-9]{17,17}", text):
+                for query_id in re.findall("(?<=queryId:\")[0-9A-z]{32,32}", text):
                     query_ids.append(query_id)
         return query_ids
 
@@ -218,4 +217,4 @@ class HashTagSearchExample(HashTagSearch):
 
 if __name__ == '__main__':
     log.basicConfig(level=log.INFO)
-    HashTagSearchExample().extract_recent_tag("christmas")
+    HashTagSearchExample().extract_recent_tag("newyork")
